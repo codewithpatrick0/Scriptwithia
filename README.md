@@ -44,7 +44,7 @@ El archivo `.env` está ignorado por git y **nunca** debe subirse al repositorio
 ## Uso
 
 ```bash
-uv run python -m scriptwithia.script
+uv run scriptwithia
 ```
 
 El script pide por consola el nombre del archivo CSV (incluyendo la extensión `.csv`) y muestra el resultado por pantalla:
@@ -67,7 +67,7 @@ En el repositorio se incluye `sample_input.csv` como archivo de prueba.
 Scriptwithia/
 ├── src/
 │   └── scriptwithia/
-│       ├── __init__.py      # Punto de entrada del paquete
+│       ├── __init__.py      # Marcador del paquete
 │       ├── script.py        # Lógica principal: lectura, prompt y llamada al LLM
 │       └── settings.py      # Carga de variables de entorno con pydantic-settings
 ├── sample_input.csv         # CSV de ejemplo
@@ -97,6 +97,5 @@ Versión base funcional. Pendiente:
 - [ ] Guardar la salida en un archivo en lugar de imprimirla por consola
 - [ ] Validar que la respuesta del modelo sea un CSV válido
 - [ ] Recibir la ruta del CSV por argumentos de línea de comandos en vez de `input()`
-- [ ] Conectar el entry point `scriptwithia` de `pyproject.toml` a `script.main()`
 - [ ] Procesar CSV grandes por lotes en lugar de enviar el archivo completo en un solo prompt
 - [ ] Tests
