@@ -1,23 +1,54 @@
 # Scriptwithia
 
-Script en Python que enriquece un CSV de empresas usando un LLM a través de la API de [Groq](https://groq.com/).
+A Python script that enriches a CSV of companies using an LLM through the [Groq](https://groq.com/) API.
 
-A partir de un CSV con las columnas `company_name` y `raw_description`, el modelo devuelve un CSV nuevo con esas dos columnas más cuatro adicionales:
+Given a CSV with `company_name` and `raw_description` columns, the model returns each original row extended with four inferred fields:
 
-| Columna | Descripción |
+| Field | Description |
 |---|---|
-| `industry` | Industria o sector inferido de la empresa |
-| `company_size_estimate` | Estimación del tamaño de la empresa |
-| `one_line_summary` | Resumen de una línea listo para outreach |
-| `confidence` | Nivel de confianza del análisis |
+| `industry` | The company's main industry |
+| `estimated_company_size` | Estimated size of the company |
+| `one_line_summary` | A concise one-line description ready for outreach |
+| `confidence_level` | Confidence level of the generated information |
 
-## Requisitos
+## How it works: row-by-row analysis
+
+The key design decision of this project is that **the LLM analyzes one company at a time, not the whole CSV in a single prompt.**
+
+The file is parsed with `csv.DictReader` into a list of dictionaries, and `analyze_dicts()` iterates over them, issuing one focused request per row. Each response comes back as a JSON object holding only the four new fields, which is then merged into its source row with `dict_ | response`.
+
+```
+sample_input.csv
+      │
+      ▼
+ analyze_csv()          csv.DictReader  →  [ {row1}, {row2}, {row3}, ... ]
+      │
+      ▼
+ analyze_dicts()        for each row:
+      │                     craft_prompt(row)   →  prompt for ONE company
+      │                     call_llm(prompt)    →  {"industry": ..., ...}
+      │                     row | response      →  enriched row
+      ▼
+ [ {row1 + 4 fields}, {row2 + 4 fields}, ... ]
+```
+
+This is more efficient and far less error-prone than sending the entire file in one prompt:
+
+- **Deterministic parsing.** Each call returns a small JSON object requested with `response_format={"type": "json_object"}`, so the output is parsed with `json.loads()` instead of hoping the model reproduces valid CSV. No stray markdown fences, no explanatory text, no broken quoting.
+- **No data loss or hallucinated rows.** The original data never passes through the model — the prompt explicitly forbids repeating input fields, and the source row is preserved verbatim on the Python side. The model cannot drop rows, reorder them, invent companies, or silently rewrite a description.
+- **Bounded context per call.** The prompt size stays constant regardless of how large the input file is, so the script does not degrade as the CSV grows or hit the context limit on a large file.
+- **Focused attention.** The model reasons about a single company per request rather than splitting its attention across dozens, which yields more consistent classifications.
+- **Isolated failures.** A malformed response affects one row instead of invalidating the entire output.
+
+The trade-off is one API call per row instead of one per file. That is the cost paid for reliability.
+
+## Requirements
 
 - Python >= 3.12
-- [uv](https://docs.astral.sh/uv/) para gestionar dependencias
-- Una API key de Groq ([console.groq.com/keys](https://console.groq.com/keys))
+- [uv](https://docs.astral.sh/uv/) for dependency management
+- A Groq API key ([console.groq.com/keys](https://console.groq.com/keys))
 
-## Instalación
+## Installation
 
 ```bash
 git clone https://github.com/codewithpatrick0/Scriptwithia.git
@@ -25,77 +56,80 @@ cd Scriptwithia
 uv sync
 ```
 
-## Configuración
+## Configuration
 
-Copia el archivo de ejemplo y coloca tu API key:
+Copy the example file and add your API key:
 
 ```bash
 cp .env.example .env
 ```
 
-Luego edita `.env`:
+Then edit `.env`:
 
 ```
-GROQ_API_KEY=tu_api_key_de_groq_aqui
+GROQ_API_KEY=your_groq_api_key_here
 ```
 
-El archivo `.env` está ignorado por git y **nunca** debe subirse al repositorio.
+`.env` is gitignored and must **never** be committed.
 
-## Uso
+## Usage
 
 ```bash
 uv run scriptwithia
 ```
 
-El script pide por consola el nombre del archivo CSV (incluyendo la extensión `.csv`) y muestra el resultado por pantalla:
+The script asks for the CSV filename (including the `.csv` extension) and prints the enriched rows:
 
 ```
 Enter the full CSV filename, including .csv. sample_input.csv
 recognizing CSV...
-All set, creating prompt.
-Prompt created!
-returning CSV ...
-company_name,raw_description,industry,company_size_estimate,one_line_summary,confidence
-...
+Extracting the final information ...
+All done!
+[{'company_name': 'Greenfield Roasters', 'raw_description': '...', 'industry': 'Food & Beverage - Specialty Coffee', 'estimated_company_size': '5-15', 'one_line_summary': '...', 'confidence_level': '0.90'}, ...]
 ```
 
-En el repositorio se incluye `sample_input.csv` como archivo de prueba.
+`sample_input.csv` is included as a test file.
 
-## Estructura del proyecto
+## Project structure
 
 ```
 Scriptwithia/
 ├── src/
 │   └── scriptwithia/
-│       ├── __init__.py      # Marcador del paquete
-│       ├── script.py        # Lógica principal: lectura, prompt y llamada al LLM
-│       └── settings.py      # Carga de variables de entorno con pydantic-settings
-├── sample_input.csv         # CSV de ejemplo
-├── prueba.py                # Script suelto de pruebas de lectura de archivos
-├── .env.example             # Plantilla de variables de entorno
+│       ├── __init__.py      # Package marker
+│       ├── script.py        # Main logic: parsing, prompting and LLM calls
+│       └── settings.py      # Environment loading via pydantic-settings
+├── sample_input.csv         # Example CSV
+├── .env.example             # Environment variable template
 └── pyproject.toml
 ```
 
-### Componentes
+### Components
 
-- **`settings.py`** — define `Settings` con `pydantic-settings`, que lee `GROQ_API_KEY` desde `.env` y falla al arrancar si no está definida.
-- **`script.py`** — contiene el flujo completo:
-  - `analyze_csv(csv)` lee el archivo de entrada.
-  - `craft_prompt(info)` arma el prompt con las instrucciones de enriquecimiento.
-  - `call_llm(prompt)` llama al modelo `openai/gpt-oss-120b` en Groq.
-  - `main()` orquesta los tres pasos.
+- **`settings.py`** — defines `Settings` with `pydantic-settings`, reading `GROQ_API_KEY` from `.env` and failing at startup if it is missing.
+- **`script.py`** — the full pipeline:
+  - `analyze_csv(csv_archive)` parses the file with `csv.DictReader` and returns a list of dicts.
+  - `craft_prompt(dict_company)` builds the prompt for a single company, requesting only the four new fields.
+  - `call_llm(prompt)` calls the model in JSON mode.
+  - `analyze_dicts(list_dicts)` loops over the rows and merges each response into its source row.
+  - `main()` orchestrates the pipeline.
 
-## Modelo
+## Model
 
-Actualmente se usa `openai/gpt-oss-120b` a través de Groq. Se puede cambiar en `call_llm()` dentro de `src/scriptwithia/script.py`.
+Currently uses `openai/gpt-oss-120b` via Groq. It can be changed in `call_llm()` inside `src/scriptwithia/script.py`.
 
-## Estado del proyecto
+## Project status
 
-Versión base funcional. Pendiente:
+Working base version. **Error handling is still pending, especially in `analyze_dicts()`**, which currently runs the whole loop without any protection:
 
-- [ ] Manejo de errores más robusto (archivo inexistente, CSV mal formado, fallos de la API)
-- [ ] Guardar la salida en un archivo en lugar de imprimirla por consola
-- [ ] Validar que la respuesta del modelo sea un CSV válido
-- [ ] Recibir la ruta del CSV por argumentos de línea de comandos en vez de `input()`
-- [ ] Procesar CSV grandes por lotes en lugar de enviar el archivo completo en un solo prompt
-- [ ] Tests
+- [ ] **`analyze_dicts()` has no error handling at all.** A single failure aborts the entire run and every row processed so far is lost:
+  - [ ] `call_llm()` is unprotected — an API error, timeout, rate limit or network failure propagates and kills the loop.
+  - [ ] `json.loads()` can raise `JSONDecodeError` if the model returns something unparseable.
+  - [ ] The response is not validated: there is no check that the four expected fields are present, or that `dict_ | response` is not silently overwriting original columns with model output.
+  - [ ] No retries or backoff on transient failures.
+  - [ ] No way to continue with the remaining rows after one fails, and no report of which rows failed.
+- [ ] No rate limiting between calls, and calls run sequentially (concurrency would cut runtime significantly).
+- [ ] Write the result to an output CSV instead of printing the raw list of dicts.
+- [ ] Accept the CSV path as a command-line argument instead of `input()`.
+- [ ] Validate the input CSV has the expected columns before spending API calls.
+- [ ] Tests.
