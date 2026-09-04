@@ -81,3 +81,9 @@ temp/
 # ---- Salidas generadas por el script ----
 output/
 *_enriched.csv
+new_archive.csv
+
+# ---- Scratch / pruebas locales (no forman parte del proyecto) ----
+prueba.py
+usuarios.json
+typescript
