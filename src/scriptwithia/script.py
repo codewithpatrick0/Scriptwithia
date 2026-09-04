@@ -64,7 +64,7 @@ def analyze_dicts(list_dicts) -> list:
     final_list = []
 
     for dict_ in list_dicts:
-        response =call_llm(craft_prompt(dict_))
+        response = call_llm(craft_prompt(dict_))
         response: dict = json.loads(response)
         final_dict = dict_ | response
         final_list.append(final_dict)
