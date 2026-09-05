@@ -42,6 +42,21 @@ This is more efficient and far less error-prone than sending the entire file in 
 
 The trade-off is one API call per row instead of one per file. That is the cost paid for reliability.
 
+## Error handling
+
+Failures are contained at two levels, so a bad row or a flaky network never aborts the whole run.
+
+**Transient failures are retried.** `call_llm()` wraps the request in a retry loop of up to 3 attempts, catching `APIConnectionError`, `APITimeoutError`, `RateLimitError` and `InternalServerError`. Each failed attempt is reported; if all three are exhausted the error propagates so the caller can decide what to do. Non-recoverable status errors (`APIStatusError` — bad request, bad credentials, missing model) are raised immediately without wasting retries.
+
+**Bad rows are skipped, not fatal.** `analyze_dicts()` guards every iteration and uses `continue` to move on:
+
+- `APIError` — the row exhausted its retries or hit an unrecoverable API error.
+- `json.JSONDecodeError` — the model returned something that is not valid JSON.
+
+Either way the row is dropped with a message and the loop keeps going, so the remaining companies are still processed and whatever succeeded is returned.
+
+**Missing input is handled up front.** `analyze_csv()` catches `FileNotFoundError` and returns `None`; `main()` checks for it and exits cleanly instead of crashing.
+
 ## Requirements
 
 - Python >= 3.12
@@ -110,8 +125,8 @@ Scriptwithia/
 - **`script.py`** — the full pipeline:
   - `analyze_csv(csv_archive)` parses the file with `csv.DictReader` and returns a list of dicts.
   - `craft_prompt(dict_company)` builds the prompt for a single company, requesting only the four new fields.
-  - `call_llm(prompt)` calls the model in JSON mode.
-  - `analyze_dicts(list_dicts)` loops over the rows and merges each response into its source row.
+  - `call_llm(prompt)` calls the model in JSON mode, retrying transient failures up to 3 times.
+  - `analyze_dicts(list_dicts)` loops over the rows, merges each response into its source row, and skips rows that fail.
   - `main()` orchestrates the pipeline.
 
 ## Model
@@ -120,16 +135,18 @@ Currently uses `openai/gpt-oss-120b` via Groq. It can be changed in `call_llm()`
 
 ## Project status
 
-Working base version. **Error handling is still pending, especially in `analyze_dicts()`**, which currently runs the whole loop without any protection:
+Working base version with error handling in place for network failures, API errors and malformed model responses. Still pending:
 
-- [ ] **`analyze_dicts()` has no error handling at all.** A single failure aborts the entire run and every row processed so far is lost:
-  - [ ] `call_llm()` is unprotected — an API error, timeout, rate limit or network failure propagates and kills the loop.
-  - [ ] `json.loads()` can raise `JSONDecodeError` if the model returns something unparseable.
-  - [ ] The response is not validated: there is no check that the four expected fields are present, or that `dict_ | response` is not silently overwriting original columns with model output.
-  - [ ] No retries or backoff on transient failures.
-  - [ ] No way to continue with the remaining rows after one fails, and no report of which rows failed.
+**Error handling**
+
+- [ ] No backoff between retries — the 3 attempts fire back to back, which does not help on a rate limit that needs time to clear.
+- [ ] The response contents are not validated: there is no check that the four expected fields are present, nor that `dict_ | response` is not silently overwriting original columns with model output.
+- [ ] Skipped rows are printed as they happen but never summarized — the run ends without reporting how many rows were dropped or which ones.
+
+**Features**
+
+- [ ] Finish `migrate_json()` and write the result to a file instead of printing the raw list of dicts.
 - [ ] No rate limiting between calls, and calls run sequentially (concurrency would cut runtime significantly).
-- [ ] Write the result to an output CSV instead of printing the raw list of dicts.
 - [ ] Accept the CSV path as a command-line argument instead of `input()`.
 - [ ] Validate the input CSV has the expected columns before spending API calls.
 - [ ] Tests.
