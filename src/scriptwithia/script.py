@@ -1,5 +1,14 @@
 from .settings import settings
-from groq import Groq
+from groq import (
+    Groq,
+    APIConnectionError,
+    APITimeoutError,
+    RateLimitError,
+    InternalServerError,
+    APIStatusError,
+    APIError
+)
+
 import csv
 import json
 
@@ -45,35 +54,63 @@ def craft_prompt(dict_company: dict):
         """
 
 def call_llm(prompt):
-   response = client.chat.completions.create(
-        model='openai/gpt-oss-120b',
-        messages=
-        [
-            {
-            'role': 'user',
-            'content': prompt
-            }
-        ],
-        response_format={
-            "type": "json_object"
-        }
-    )
-   return response.choices[0].message.content
+    MAX_RETRIES = 3
+    for attemp in range(1, MAX_RETRIES+1):
+        try: 
+            response = client.chat.completions.create(
+                model='openai/gpt-oss-120b',
+                messages=
+                [
+                    {
+                    'role': 'user',
+                    'content': prompt
+                    }
+                ],
+                response_format={
+                    "type": "json_object"
+                }
+            )
+            return response.choices[0].message.content
+        except (
+            APIConnectionError, APITimeoutError, RateLimitError, 
+            InternalServerError
+            ) as error:
+            if attemp < MAX_RETRIES:
+                print(f'Connection attemp {attemp} failed: {error}')
+            else:
+                print('No more attempts; we will move on to the next row.')
+                raise
+        except APIStatusError as error:
+            print(f'Unrecoverable API error: {error}')
+            
+            raise
+
+        
 
 def analyze_dicts(list_dicts) -> list:
     final_list = []
 
     for dict_ in list_dicts:
-        response = call_llm(craft_prompt(dict_))
-        response: dict = json.loads(response)
+        try:
+            response = call_llm(craft_prompt(dict_))
+            response: dict = json.loads(response)
+        except APIError as error:
+            print(str(error))
+            continue
+        except json.JSONDecodeError as error:
+            print(f'Row discarded, response is not valid JSON: {error}')
+            continue
+        
+
         final_dict = dict_ | response
         final_list.append(final_dict)
 
     return final_list
 
-
+def migrate_json(json_name: str = "new_json.json"):
+    pass
 def main() -> None:
-    csv_archive = input('Enter the full CSV filename, including .csv.')
+    csv_archive = input('Enter the full CSV filename, including .csv: ')
     print('recognizing CSV...')
     info = analyze_csv(csv_archive)
 
