@@ -33,7 +33,7 @@ def analyze_csv(csv_archive) -> list:
             return lista
         
     except FileNotFoundError as error:
-        print(f'Archivo no encontrado: {error}')
+        print(f'File not found: {error}')
         return None
 
 def craft_prompt(dict_company: dict):
@@ -80,8 +80,8 @@ def call_llm(prompt):
             InternalServerError
             ) as error:
             if attemp < MAX_RETRIES:
-                print(f'Connection attemp {attemp} failed: {error}')
-                print('Reintentando en 3 segundos ...')
+                print(f'Connection attempt {attemp} failed: {error}')
+                print('Retrying in 3 seconds ...')
 
                 time.sleep(3)
             else:
@@ -172,7 +172,7 @@ def migrate_csv(final_list: list, csv_name: str = "new_archive.csv"):
     return its_a_success
     
 def main() -> None:
-    csv_archive = input('Enter the full CSV filename: ')
+    csv_archive = input('Enter the CSV filename WITHOUT the .csv extension: ')
     print('recognizing CSV...')
     info = analyze_csv(csv_archive+'.csv')
 
@@ -189,7 +189,7 @@ def main() -> None:
 
     print('All done!')
 
-    archive_name = input('Insert the name to generate the new JSON and CSV files: ')
+    archive_name = input('Name for the new JSON and CSV files, WITHOUT extension: ')
     print('Migrate to archive JSON ...')
 
     final_json = migrate_json(final_list, archive_name+'.json')
@@ -201,7 +201,7 @@ def main() -> None:
     final_csv = migrate_csv(final_list, archive_name+'.csv')
 
     print('Done!') if final_csv is True else print('Could not migrate to CSV.')
-    print('Proceess completed.')
+    print('Process completed.')
 
     
 if __name__ == "__main__":
