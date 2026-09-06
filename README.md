@@ -11,6 +11,12 @@ Given a CSV with `company_name` and `raw_description` columns, the model returns
 | `one_line_summary` | A concise one-line description ready for outreach |
 | `confidence_level` | Confidence level of the generated information |
 
+## Why
+
+Freelance data-enrichment jobs almost always ask for the same kind of judgment call: given a raw lead (a name, a title, a short description), infer structured fields like industry, seniority, or company size — fields that are usually implicit in the text, not handed to you directly. Doing that by hand for a few hundred leads is slow and inconsistent between reviewers.
+
+This project automates the first pass of that judgment call with an LLM, while keeping a human (or a downstream reviewer) in control: nothing is guessed silently, every original field is preserved untouched, and a `confidence_level` is attached to every row so low-confidence inferences are easy to flag for manual review — the same "don't guess, mark it for review" principle that shows up in real lead-enrichment briefs.
+
 ## How it works: row-by-row analysis
 
 The key design decision of this project is that **the LLM analyzes one company at a time, not the whole CSV in a single prompt.**
@@ -30,6 +36,9 @@ sample_input.csv
       │                     row | response      →  enriched row
       ▼
  [ {row1 + 4 fields}, {row2 + 4 fields}, ... ]
+      │
+      ▼
+ migrate_json()  +  migrate_csv()   →   <name>.json  and  <name>.csv
 ```
 
 This is more efficient and far less error-prone than sending the entire file in one prompt:
@@ -44,18 +53,22 @@ The trade-off is one API call per row instead of one per file. That is the cost 
 
 ## Error handling
 
-Failures are contained at two levels, so a bad row or a flaky network never aborts the whole run.
+Failures are contained at several levels, so a bad row or a flaky network never aborts the whole run.
 
-**Transient failures are retried.** `call_llm()` wraps the request in a retry loop of up to 3 attempts, catching `APIConnectionError`, `APITimeoutError`, `RateLimitError` and `InternalServerError`. Each failed attempt is reported; if all three are exhausted the error propagates so the caller can decide what to do. Non-recoverable status errors (`APIStatusError` — bad request, bad credentials, missing model) are raised immediately without wasting retries.
+**Transient failures are retried with backoff.** `call_llm()` wraps the request in a retry loop of up to 3 attempts, catching `APIConnectionError`, `APITimeoutError`, `RateLimitError` and `InternalServerError`. Each failed attempt waits 3 seconds before retrying, giving rate limits and transient network issues a moment to clear. If all three attempts are exhausted, the error propagates so the caller can decide what to do. Non-recoverable status errors (`APIStatusError` — bad request, bad credentials, missing model) are raised immediately without wasting retries.
 
 **Bad rows are skipped, not fatal.** `analyze_dicts()` guards every iteration and uses `continue` to move on:
 
-- `APIError` — the row exhausted its retries or hit an unrecoverable API error.
+- `APIError` — the row exhausted its retries or hit an API error specific to that request.
 - `json.JSONDecodeError` — the model returned something that is not valid JSON.
 
 Either way the row is dropped with a message and the loop keeps going, so the remaining companies are still processed and whatever succeeded is returned.
 
+**Run-wide failures stop immediately.** Not every API error deserves the same treatment. `AuthenticationError`, `PermissionDeniedError` and `NotFoundError` mean the API key, the permissions or the model name are wrong — a problem that affects every single row, so retrying per row only burns calls to fail identically. These are caught *before* the generic `APIError` handler and re-raised, and `main()` turns them into a clean abort message instead of a traceback. A bad API key now fails on the first row rather than after the whole file.
+
 **Missing input is handled up front.** `analyze_csv()` catches `FileNotFoundError` and returns `None`; `main()` checks for it and exits cleanly instead of crashing.
+
+**Writes report success instead of failing silently.** `migrate_json()` and `migrate_csv()` each return a boolean flag rather than raising. Both refuse to write an empty result set — `migrate_json()` checks the length explicitly, `migrate_csv()` catches the `IndexError` raised when it reads the header from the first row — and both handle `OSError` on write, plus `TypeError` for non-serializable data and `ValueError` for rows that do not match the CSV header. `main()` reports the outcome per file instead of assuming the write worked.
 
 ## Requirements
 
@@ -93,17 +106,24 @@ GROQ_API_KEY=your_groq_api_key_here
 uv run scriptwithia
 ```
 
-The script asks for the CSV filename (including the `.csv` extension) and prints the enriched rows:
+Both prompts ask for names **without** an extension: first the input CSV, then a base name for the two output files it generates (a `.json` and a `.csv`, both enriched with the four new fields):
 
 ```
-Enter the full CSV filename, including .csv. sample_input.csv
+Enter the CSV filename WITHOUT the .csv extension: sample_input
 recognizing CSV...
 Extracting the final information ...
 All done!
-[{'company_name': 'Greenfield Roasters', 'raw_description': '...', 'industry': 'Food & Beverage - Specialty Coffee', 'estimated_company_size': '5-15', 'one_line_summary': '...', 'confidence_level': '0.90'}, ...]
+Name for the new JSON and CSV files, WITHOUT extension: sample_output
+Migrate to archive JSON ...
+Done!
+Migrate to archive CSV ...
+Done!
+Process completed.
 ```
 
-`sample_input.csv` is included as a test file.
+`sample_input.csv` is the example this project was built and tested against, and `sample_output.csv` / `sample_output.json` are the real result of the run above — committed as-is, so you can see the actual model output without spending an API call.
+
+Note the values in that sample: `confidence_level` comes back as `High` and `high`, and `estimated_company_size` as `10-20 employees`, `12 employees` and `Small (1-10 employees)`. That inconsistency is real, not cherry-picked, and is listed as pending below.
 
 ## Project structure
 
@@ -112,9 +132,11 @@ Scriptwithia/
 ├── src/
 │   └── scriptwithia/
 │       ├── __init__.py      # Package marker
-│       ├── script.py        # Main logic: parsing, prompting and LLM calls
+│       ├── script.py        # Main logic: parsing, prompting, LLM calls, output
 │       └── settings.py      # Environment loading via pydantic-settings
-├── sample_input.csv         # Example CSV
+├── sample_input.csv         # Example input
+├── sample_output.csv        # Real enriched output from sample_input.csv
+├── sample_output.json       # Same result in JSON
 ├── .env.example             # Environment variable template
 └── pyproject.toml
 ```
@@ -125,9 +147,10 @@ Scriptwithia/
 - **`script.py`** — the full pipeline:
   - `analyze_csv(csv_archive)` parses the file with `csv.DictReader` and returns a list of dicts.
   - `craft_prompt(dict_company)` builds the prompt for a single company, requesting only the four new fields.
-  - `call_llm(prompt)` calls the model in JSON mode, retrying transient failures up to 3 times.
+  - `call_llm(prompt)` calls the model in JSON mode, retrying transient failures up to 3 times with a 3-second backoff.
   - `analyze_dicts(list_dicts)` loops over the rows, merges each response into its source row, and skips rows that fail.
-  - `main()` orchestrates the pipeline.
+  - `migrate_json(final_list, json_name)` / `migrate_csv(final_list, csv_name)` write the enriched data to disk and return a success flag.
+  - `main()` orchestrates the pipeline end to end.
 
 ## Model
 
@@ -135,17 +158,16 @@ Currently uses `openai/gpt-oss-120b` via Groq. It can be changed in `call_llm()`
 
 ## Project status
 
-Working base version with error handling in place for network failures, API errors and malformed model responses. Still pending:
+Working end to end: input validation, row-by-row enrichment, retries with backoff, and dual-format output (JSON + CSV) with explicit success/failure reporting. Still pending:
 
 **Error handling**
 
-- [ ] No backoff between retries — the 3 attempts fire back to back, which does not help on a rate limit that needs time to clear.
 - [ ] The response contents are not validated: there is no check that the four expected fields are present, nor that `dict_ | response` is not silently overwriting original columns with model output.
+- [ ] The model's values are not normalized. Across a single run `confidence_level` comes back as `High`, `high` and `High`, and `estimated_company_size` as `10-20 employees`, `12 employees` and `Small (1-10 employees)` — usable, but not something a downstream filter or sort can rely on. Either constrain the prompt to a fixed vocabulary (or a 0-1 float) or normalize after parsing.
 - [ ] Skipped rows are printed as they happen but never summarized — the run ends without reporting how many rows were dropped or which ones.
 
 **Features**
 
-- [ ] Finish `migrate_json()` and write the result to a file instead of printing the raw list of dicts.
 - [ ] No rate limiting between calls, and calls run sequentially (concurrency would cut runtime significantly).
 - [ ] Accept the CSV path as a command-line argument instead of `input()`.
 - [ ] Validate the input CSV has the expected columns before spending API calls.
