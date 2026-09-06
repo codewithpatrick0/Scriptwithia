@@ -1,0 +1,34 @@
+[
+    {
+        "company_name": "Greenfield Roasters",
+        "raw_description": "Small-batch coffee roaster and cafe with two locations, started in 2019 by two friends, sources beans directly from farms in Colombia.",
+        "industry": "Food & Beverage",
+        "estimated_company_size": "10-20 employees",
+        "one_line_summary": "Greenfield Roasters is a small-batch coffee roaster and café operating two locations, founded in 2019, sourcing beans directly from Colombian farms.",
+        "confidence_level": "High"
+    },
+    {
+        "company_name": "Nimbus Cloud Solutions",
+        "raw_description": "IT consulting firm helping mid-size companies migrate on-premise servers to cloud infrastructure, 40+ employees, based in Austin.",
+        "industry": "Information Technology Consulting",
+        "estimated_company_size": "40-50 employees",
+        "one_line_summary": "Nimbus Cloud Solutions provides IT consulting to mid-size firms, specializing in migrating on-premise servers to cloud infrastructure.",
+        "confidence_level": "high"
+    },
+    {
+        "company_name": "Corner Bolt Hardware",
+        "raw_description": "Family-owned hardware store operating since 1978, one location, sells tools and home repair supplies to local contractors.",
+        "industry": "Hardware Retail",
+        "estimated_company_size": "Small (1-10 employees)",
+        "one_line_summary": "Family-owned hardware store serving local contractors since 1978",
+        "confidence_level": "High"
+    },
+    {
+        "company_name": "Vertex Analytics",
+        "raw_description": "Provides data analytics dashboards for e-commerce brands, subscription-based SaaS product, team of 12, founded 2021.",
+        "industry": "Data Analytics",
+        "estimated_company_size": "12 employees",
+        "one_line_summary": "Vertex Analytics delivers subscription-based data analytics dashboards tailored for e-commerce brands, empowering them with actionable insights.",
+        "confidence_level": "High"
+    }
+]
