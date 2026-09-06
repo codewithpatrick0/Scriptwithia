@@ -11,6 +11,7 @@ from groq import (
 
 import csv
 import json
+import time
 
 client = Groq(
     api_key=settings.GROQ_API_KEY
@@ -77,6 +78,9 @@ def call_llm(prompt):
             ) as error:
             if attemp < MAX_RETRIES:
                 print(f'Connection attemp {attemp} failed: {error}')
+                print('Reintentando en 3 segundos ...')
+
+                time.sleep(3)
             else:
                 print('No more attempts; we will move on to the next row.')
                 raise
@@ -86,7 +90,6 @@ def call_llm(prompt):
             raise
 
         
-
 def analyze_dicts(list_dicts) -> list:
     final_list = []
 
@@ -99,20 +102,71 @@ def analyze_dicts(list_dicts) -> list:
             continue
         except json.JSONDecodeError as error:
             print(f'Row discarded, response is not valid JSON: {error}')
-            continue
-        
+            continue        
 
         final_dict = dict_ | response
         final_list.append(final_dict)
 
     return final_list
 
-def migrate_json(json_name: str = "new_json.json"):
-    pass
+
+def migrate_json(final_list: list, json_name: str = "new_archive.json"):
+    its_a_success = True
+    try:
+        if len(final_list) <= 0:
+            raise IndexError('No content found to migrate to JSON.') 
+        
+        with open(json_name, 'w', encoding='utf-8') as file:
+            json.dump(
+                    final_list,
+                    file,
+                    indent=4,
+                    ensure_ascii=False
+                      )
+    except TypeError as error:
+        print(f'The data to be transferred is not JSON-serializable: {error}')
+        its_a_success = False
+        
+    except OSError as error:
+        print(f'Could not write JSON file: {error}')
+        its_a_success = False
+
+    except IndexError as error:
+        print(str(error))
+        its_a_success = False
+
+    return its_a_success
+
+def migrate_csv(final_list: list, csv_name: str = "new_archive.csv"):
+    its_a_success = True
+    try:
+        fieldnames = final_list[0].keys()
+
+        with open(csv_name, 'w', encoding='utf-8', newline="") as file:
+            writer = csv.DictWriter(file, fieldnames=fieldnames)
+
+            writer.writeheader()
+            writer.writerows(final_list)
+
+    except ValueError as error:
+        print(f"Invalid CSV row: {error}")
+        its_a_success = False
+
+    except OSError as error:
+            print(f'Could not write CSV file: {error}')
+            its_a_success = False 
+
+    except IndexError as error:
+        print(f'No content found to migrate to CSV: {error}')
+        its_a_success = False
+
+    
+    return its_a_success
+    
 def main() -> None:
-    csv_archive = input('Enter the full CSV filename, including .csv: ')
+    csv_archive = input('Enter the full CSV filename: ')
     print('recognizing CSV...')
-    info = analyze_csv(csv_archive)
+    info = analyze_csv(csv_archive+'.csv')
 
     if info is None:
         return
@@ -122,7 +176,19 @@ def main() -> None:
 
     print('All done!')
 
-    print(final_list)
+    archive_name = input('Insert the name to generate the new JSON and CSV files: ')
+    print('Migrate to archive JSON ...')
+
+    final_json = migrate_json(final_list, archive_name+'.json')
+
+    print('Done!') if final_json is True else print('Could not migrate to JSON.')
+
+    print('Migrate to archive CSV ...')
+
+    final_csv = migrate_csv(final_list, archive_name+'.csv')
+
+    print('Done!') if final_csv is True else print('Could not migrate to CSV.')
+    print('Proceess completed.')
 
     
 if __name__ == "__main__":
