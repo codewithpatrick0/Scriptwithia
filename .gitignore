@@ -79,11 +79,15 @@ tmp/
 temp/
 
 # ---- Salidas generadas por el script ----
+# sample_input.csv y sample_output.{csv,json} SI se versionan:
+# son el ejemplo de entrada y su resultado real.
 output/
 *_enriched.csv
 new_archive.csv
+new_archive.json
 
 # ---- Scratch / pruebas locales (no forman parte del proyecto) ----
 prueba.py
+prueba.csv
 usuarios.json
 typescript
