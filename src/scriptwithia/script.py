@@ -6,7 +6,10 @@ from groq import (
     RateLimitError,
     InternalServerError,
     APIStatusError,
-    APIError
+    APIError,
+    AuthenticationError,
+    PermissionDeniedError,
+    NotFoundError
 )
 
 import csv
@@ -97,6 +100,11 @@ def analyze_dicts(list_dicts) -> list:
         try:
             response = call_llm(craft_prompt(dict_))
             response: dict = json.loads(response)
+        except (
+            AuthenticationError, PermissionDeniedError, NotFoundError
+            ) as error:
+            print(f'Fatal API error, aborting the run: {error}')
+            raise
         except APIError as error:
             print(str(error))
             continue
@@ -172,7 +180,12 @@ def main() -> None:
         return
 
     print("Extracting the final information ... ")
-    final_list = analyze_dicts(info)
+
+    try:
+        final_list = analyze_dicts(info)
+    except APIError:
+        print('Run aborted. Check your API key and model settings, then try again.')
+        return
 
     print('All done!')
 
