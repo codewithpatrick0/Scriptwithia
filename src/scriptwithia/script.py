@@ -43,17 +43,35 @@ def craft_prompt(dict_company: dict):
 
     Based on the provided information, generate ONLY the following additional fields:
 
-    * industry: the company's main industry.
-    * estimated_company_size: the estimated size of the company.
-    * one_line_summary: a concise one-line company description ready for publication.
-    * confidence_level: the confidence level of the generated information.
+    * industry: the company's main industry, in lowercase, as a short noun
+      phrase of at most 3 words (example: "software development").
+      Use "unknown" if the description does not allow you to infer it.
+
+    * estimated_company_size: the estimated headcount range. You MUST answer
+      with EXACTLY one of these values, copied character by character:
+      "1-10", "11-50", "51-200", "201-1000", "1000+", "unknown".
+      Do not add the word "employees", do not add labels such as "small",
+      and do not invent a different range. If the description states an exact
+      number, map it to the range that contains it (12 employees -> "11-50").
+      Use "unknown" if there is no basis to estimate it.
+
+    * one_line_summary: a concise one-line company description ready for
+      publication, at most 20 words, no line breaks.
+
+    * confidence_level: how confident you are in the fields you just generated.
+      You MUST answer with EXACTLY one of these values, in lowercase:
+      "high", "medium", "low".
+      Use "high" only when the description states the information explicitly,
+      "medium" when you inferred it from clear clues, and "low" when it is
+      mostly a guess.
 
     Do NOT include or repeat any fields from the original input.
 
     Return ONLY a valid JSON object containing exactly these four fields:
     industry, estimated_company_size, one_line_summary, confidence_level.
 
-    Do not include explanations, markdown, code blocks, or any text outside the JSON object.
+    All four values must be plain strings. Do not include explanations,
+    markdown, code blocks, or any text outside the JSON object.
 
         """
 
