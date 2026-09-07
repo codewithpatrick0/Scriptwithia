@@ -4,12 +4,14 @@ A Python script that enriches a CSV of companies using an LLM through the [Groq]
 
 Given a CSV with `company_name` and `raw_description` columns, the model returns each original row extended with four inferred fields:
 
-| Field | Description |
-|---|---|
-| `industry` | The company's main industry |
-| `estimated_company_size` | Estimated size of the company |
-| `one_line_summary` | A concise one-line description ready for outreach |
-| `confidence_level` | Confidence level of the generated information |
+| Field | Description | Values |
+|---|---|---|
+| `industry` | The company's main industry | Lowercase, up to 3 words |
+| `estimated_company_size` | Estimated headcount range | `1-10`, `11-50`, `51-200`, `201-1000`, `1000+`, `unknown` |
+| `one_line_summary` | A concise one-line description ready for outreach | Up to 20 words |
+| `confidence_level` | Confidence in the generated fields | `high`, `medium`, `low`, `unknown` |
+
+The two categorical fields are restricted to a closed vocabulary, so the output can be filtered, sorted and grouped without cleaning it first.
 
 ## Why
 
@@ -68,6 +70,8 @@ Either way the row is dropped with a message and the loop keeps going, so the re
 
 **Missing input is handled up front.** `analyze_csv()` catches `FileNotFoundError` and returns `None`; `main()` checks for it and exits cleanly instead of crashing.
 
+**Categorical values are validated in two layers.** The prompt pins `estimated_company_size` and `confidence_level` to a closed vocabulary, which is what actually keeps the output consistent — the model has the context to map `team of 12` to `11-50`, and code does not. But a prompt is a request, not a guarantee, so `normalize()` runs on every parsed response before it is merged into its row: it strips and lowercases both fields, checks them against the allowed sets, and falls back to `unknown` for anything else. A missing field, a stray label like `40-50 employees`, or a bare number instead of a string all resolve to `unknown` instead of reaching the output. That last case would otherwise raise `AttributeError` on `.strip()`, so each field is guarded independently and the failure is reported rather than crashing the run.
+
 **Writes report success instead of failing silently.** `migrate_json()` and `migrate_csv()` each return a boolean flag rather than raising. Both refuse to write an empty result set — `migrate_json()` checks the length explicitly, `migrate_csv()` catches the `IndexError` raised when it reads the header from the first row — and both handle `OSError` on write, plus `TypeError` for non-serializable data and `ValueError` for rows that do not match the CSV header. `main()` reports the outcome per file instead of assuming the write worked.
 
 ## Requirements
@@ -121,9 +125,9 @@ Done!
 Process completed.
 ```
 
-`sample_input.csv` is the example this project was built and tested against, and `sample_output.csv` / `sample_output.json` are the real result of the run above — committed as-is, so you can see the actual model output without spending an API call.
+`sample_input.csv` is the example this project was built and tested against, and `sample_output.csv` / `sample_output.json` are the real result of the run above — committed as-is, so you can see the actual model output without spending an API call. Every categorical value in that sample falls inside the vocabulary, with no normalization fallback triggered.
 
-Note the values in that sample: `confidence_level` comes back as `High` and `high`, and `estimated_company_size` as `10-20 employees`, `12 employees` and `Small (1-10 employees)`. That inconsistency is real, not cherry-picked, and is listed as pending below.
+Expect your own run to differ slightly. The vocabulary fixes the *format*, not the *judgment*: across two runs of this same file the `estimated_company_size` values came back identical, while one row moved from `medium` to `high`. `confidence_level` is the model's own assessment of an inference, so it is the field most likely to shift between calls. Reproducing an exact run is not something this script guarantees — treat `confidence_level` as a triage signal for manual review, not as a stable key.
 
 ## Project structure
 
@@ -146,9 +150,10 @@ Scriptwithia/
 - **`settings.py`** — defines `Settings` with `pydantic-settings`, reading `GROQ_API_KEY` from `.env` and failing at startup if it is missing.
 - **`script.py`** — the full pipeline:
   - `analyze_csv(csv_archive)` parses the file with `csv.DictReader` and returns a list of dicts.
-  - `craft_prompt(dict_company)` builds the prompt for a single company, requesting only the four new fields.
+  - `craft_prompt(dict_company)` builds the prompt for a single company, requesting only the four new fields and pinning the two categorical ones to a closed vocabulary.
   - `call_llm(prompt)` calls the model in JSON mode, retrying transient failures up to 3 times with a 3-second backoff.
-  - `analyze_dicts(list_dicts)` loops over the rows, merges each response into its source row, and skips rows that fail.
+  - `normalize(response)` strips and lowercases the categorical fields and falls back to `unknown` for anything outside the allowed sets.
+  - `analyze_dicts(list_dicts)` loops over the rows, normalizes and merges each response into its source row, and skips rows that fail.
   - `migrate_json(final_list, json_name)` / `migrate_csv(final_list, csv_name)` write the enriched data to disk and return a success flag.
   - `main()` orchestrates the pipeline end to end.
 
@@ -162,8 +167,8 @@ Working end to end: input validation, row-by-row enrichment, retries with backof
 
 **Error handling**
 
-- [ ] The response contents are not validated: there is no check that the four expected fields are present, nor that `dict_ | response` is not silently overwriting original columns with model output.
-- [ ] The model's values are not normalized. Across a single run `confidence_level` comes back as `High`, `high` and `High`, and `estimated_company_size` as `10-20 employees`, `12 employees` and `Small (1-10 employees)` — usable, but not something a downstream filter or sort can rely on. Either constrain the prompt to a fixed vocabulary (or a 0-1 float) or normalize after parsing.
+- [ ] `normalize()` validates the two categorical fields, but it does not filter unexpected keys: if the model returns `company_name` despite the prompt forbidding it, `dict_ | response` silently overwrites the original column. Building the merged dict from only the four expected keys would close this and cover missing `industry` / `one_line_summary` at the same time.
+- [ ] A JSON array instead of an object would reach `dict_ | response` and raise an uncaught `TypeError`. Unlikely under `response_format={"type": "json_object"}`, but unguarded.
 - [ ] Skipped rows are printed as they happen but never summarized — the run ends without reporting how many rows were dropped or which ones.
 
 **Features**
