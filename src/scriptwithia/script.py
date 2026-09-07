@@ -16,6 +16,11 @@ import csv
 import json
 import time
 
+CONFIDENCE = {'high', 'medium', 'low'}
+SIZES = {'1-10', '11-50', '51-200', '201-1000', '1000+'}
+
+
+
 client = Groq(
     api_key=settings.GROQ_API_KEY
 )
@@ -130,10 +135,33 @@ def analyze_dicts(list_dicts) -> list:
             print(f'Row discarded, response is not valid JSON: {error}')
             continue        
 
+        response = normalize(response)
+
         final_dict = dict_ | response
         final_list.append(final_dict)
 
     return final_list
+
+
+def normalize(response: dict) -> dict:
+    try:
+        response['confidence_level'] = response.get('confidence_level', '').strip().lower()
+    except AttributeError:
+        print('Unexpected value type for confidence_level in the model response.')
+        response['confidence_level'] = 'unknown'
+
+    try:
+        response['estimated_company_size'] = response.get('estimated_company_size', '').strip().lower()
+    except AttributeError:
+        print('Unexpected value type for estimated_company_size in the model response.')
+        response['estimated_company_size'] = 'unknown'
+
+    if response['confidence_level'] not in CONFIDENCE:
+        response['confidence_level'] = 'unknown'
+    if response['estimated_company_size'] not in SIZES:
+        response['estimated_company_size'] = 'unknown'
+
+    return response
 
 
 def migrate_json(final_list: list, json_name: str = "new_archive.json"):
