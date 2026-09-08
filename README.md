@@ -72,6 +72,8 @@ Either way the row is dropped with a message and the loop keeps going, so the re
 
 **Categorical values are validated in two layers.** The prompt pins `estimated_company_size` and `confidence_level` to a closed vocabulary, which is what actually keeps the output consistent — the model has the context to map `team of 12` to `11-50`, and code does not. But a prompt is a request, not a guarantee, so `normalize()` runs on every parsed response before it is merged into its row: it strips and lowercases both fields, checks them against the allowed sets, and falls back to `unknown` for anything else. A missing field, a stray label like `40-50 employees`, or a bare number instead of a string all resolve to `unknown` instead of reaching the output. That last case would otherwise raise `AttributeError` on `.strip()`, so each field is guarded independently and the failure is reported rather than crashing the run.
 
+**The merged row is built from a fixed set of fields.** `normalize()` does not edit the response in place — it builds a new dict from `FIELDS`, the four keys this project actually declares, so what reaches `dict_ | response` is a fixed shape regardless of what came back. Extra keys are dropped, which means a model that returns `company_name` despite the prompt forbidding it can no longer overwrite the original column; missing keys are filled with `unknown` instead of silently vanishing from the output. Deriving that set from the response itself would defeat the purpose, since the response is exactly the untrusted part. A response that is valid JSON but not an object is discarded before it gets there.
+
 **Writes report success instead of failing silently.** `migrate_json()` and `migrate_csv()` each return a boolean flag rather than raising. Both refuse to write an empty result set — `migrate_json()` checks the length explicitly, `migrate_csv()` catches the `IndexError` raised when it reads the header from the first row — and both handle `OSError` on write, plus `TypeError` for non-serializable data and `ValueError` for rows that do not match the CSV header. `main()` reports the outcome per file instead of assuming the write worked.
 
 ## Requirements
@@ -152,7 +154,7 @@ Scriptwithia/
   - `analyze_csv(csv_archive)` parses the file with `csv.DictReader` and returns a list of dicts.
   - `craft_prompt(dict_company)` builds the prompt for a single company, requesting only the four new fields and pinning the two categorical ones to a closed vocabulary.
   - `call_llm(prompt)` calls the model in JSON mode, retrying transient failures up to 3 times with a 3-second backoff.
-  - `normalize(response)` strips and lowercases the categorical fields and falls back to `unknown` for anything outside the allowed sets.
+  - `normalize(response)` rebuilds the response from the four declared `FIELDS`, strips and lowercases the categorical ones, and falls back to `unknown` for anything missing or outside the allowed sets.
   - `analyze_dicts(list_dicts)` loops over the rows, normalizes and merges each response into its source row, and skips rows that fail.
   - `migrate_json(final_list, json_name)` / `migrate_csv(final_list, csv_name)` write the enriched data to disk and return a success flag.
   - `main()` orchestrates the pipeline end to end.
@@ -163,12 +165,10 @@ Currently uses `openai/gpt-oss-120b` via Groq. It can be changed in `call_llm()`
 
 ## Project status
 
-Working end to end: input validation, row-by-row enrichment, retries with backoff, and dual-format output (JSON + CSV) with explicit success/failure reporting. Still pending:
+Working end to end: input validation, row-by-row enrichment, retries with backoff, response validation against a fixed field set and vocabulary, and dual-format output (JSON + CSV) with explicit success/failure reporting. Still pending:
 
 **Error handling**
 
-- [ ] `normalize()` validates the two categorical fields, but it does not filter unexpected keys: if the model returns `company_name` despite the prompt forbidding it, `dict_ | response` silently overwrites the original column. Building the merged dict from only the four expected keys would close this and cover missing `industry` / `one_line_summary` at the same time.
-- [ ] A JSON array instead of an object would reach `dict_ | response` and raise an uncaught `TypeError`. Unlikely under `response_format={"type": "json_object"}`, but unguarded.
 - [ ] Skipped rows are printed as they happen but never summarized — the run ends without reporting how many rows were dropped or which ones.
 
 **Features**

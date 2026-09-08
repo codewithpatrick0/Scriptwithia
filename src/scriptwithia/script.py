@@ -18,6 +18,12 @@ import time
 
 CONFIDENCE = {'high', 'medium', 'low'}
 SIZES = {'1-10', '11-50', '51-200', '201-1000', '1000+'}
+FIELDS = (
+    'industry',
+    'estimated_company_size',
+    'one_line_summary',
+    'confidence_level'
+)
 
 
 
@@ -135,6 +141,10 @@ def analyze_dicts(list_dicts) -> list:
             print(f'Row discarded, response is not valid JSON: {error}')
             continue        
 
+        if not isinstance(response, dict):
+            print('Row discarded, the model response is not a JSON object.')
+            continue
+
         response = normalize(response)
 
         final_dict = dict_ | response
@@ -144,24 +154,26 @@ def analyze_dicts(list_dicts) -> list:
 
 
 def normalize(response: dict) -> dict:
+    clean = {field: response.get(field) or 'unknown' for field in FIELDS}
+
     try:
-        response['confidence_level'] = response.get('confidence_level', '').strip().lower()
+        clean['confidence_level'] = clean['confidence_level'].strip().lower()
     except AttributeError:
         print('Unexpected value type for confidence_level in the model response.')
-        response['confidence_level'] = 'unknown'
+        clean['confidence_level'] = 'unknown'
 
     try:
-        response['estimated_company_size'] = response.get('estimated_company_size', '').strip().lower()
+        clean['estimated_company_size'] = clean['estimated_company_size'].strip().lower()
     except AttributeError:
         print('Unexpected value type for estimated_company_size in the model response.')
-        response['estimated_company_size'] = 'unknown'
+        clean['estimated_company_size'] = 'unknown'
 
-    if response['confidence_level'] not in CONFIDENCE:
-        response['confidence_level'] = 'unknown'
-    if response['estimated_company_size'] not in SIZES:
-        response['estimated_company_size'] = 'unknown'
+    if clean['confidence_level'] not in CONFIDENCE:
+        clean['confidence_level'] = 'unknown'
+    if clean['estimated_company_size'] not in SIZES:
+        clean['estimated_company_size'] = 'unknown'
 
-    return response
+    return clean
 
 
 def migrate_json(final_list: list, json_name: str = "new_archive.json"):
