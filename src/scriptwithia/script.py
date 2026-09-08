@@ -124,8 +124,9 @@ def call_llm(prompt):
         
 def analyze_dicts(list_dicts) -> list:
     final_list = []
+    skipped = []
 
-    for dict_ in list_dicts:
+    for position, dict_ in enumerate(list_dicts, start=1):
         try:
             response = call_llm(craft_prompt(dict_))
             response: dict = json.loads(response)
@@ -135,20 +136,28 @@ def analyze_dicts(list_dicts) -> list:
             print(f'Fatal API error, aborting the run: {error}')
             raise
         except APIError as error:
-            print(str(error))
+            print(f'Row {position} discarded: {error}')
+            skipped.append(position)
             continue
         except json.JSONDecodeError as error:
-            print(f'Row discarded, response is not valid JSON: {error}')
-            continue        
+            print(f'Row {position} discarded, response is not valid JSON: {error}')
+            skipped.append(position)
+            continue
 
         if not isinstance(response, dict):
-            print('Row discarded, the model response is not a JSON object.')
+            print(f'Row {position} discarded, the model response is not a JSON object.')
+            skipped.append(position)
             continue
 
         response = normalize(response)
 
         final_dict = dict_ | response
         final_list.append(final_dict)
+
+    if skipped:
+        print(f'{len(skipped)} of {len(list_dicts)} rows were skipped: {skipped}')
+    else:
+        print(f'All {len(list_dicts)} rows were processed.')
 
     return final_list
 

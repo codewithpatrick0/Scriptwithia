@@ -63,8 +63,9 @@ Failures are contained at several levels, so a bad row or a flaky network never 
 
 - `APIError` — the row exhausted its retries or hit an API error specific to that request.
 - `json.JSONDecodeError` — the model returned something that is not valid JSON.
+- Valid JSON that is not an object, which could not be merged into a row.
 
-Either way the row is dropped with a message and the loop keeps going, so the remaining companies are still processed and whatever succeeded is returned.
+Either way the row is dropped with a message and the loop keeps going, so the remaining companies are still processed and whatever succeeded is returned. Messages carry the 1-based row number, and the loop closes with a summary — `2 of 5 rows were skipped: [2, 4]`, or `All 5 rows were processed.` — so a partial output is never mistaken for a complete one. Row numbers, not company names, because `analyze_dicts()` makes no assumption about which columns the input CSV has.
 
 **Run-wide failures stop immediately.** Not every API error deserves the same treatment. `AuthenticationError`, `PermissionDeniedError` and `NotFoundError` mean the API key, the permissions or the model name are wrong — a problem that affects every single row, so retrying per row only burns calls to fail identically. These are caught *before* the generic `APIError` handler and re-raised, and `main()` turns them into a clean abort message instead of a traceback. A bad API key now fails on the first row rather than after the whole file.
 
@@ -166,12 +167,6 @@ Currently uses `openai/gpt-oss-120b` via Groq. It can be changed in `call_llm()`
 ## Project status
 
 Working end to end: input validation, row-by-row enrichment, retries with backoff, response validation against a fixed field set and vocabulary, and dual-format output (JSON + CSV) with explicit success/failure reporting. Still pending:
-
-**Error handling**
-
-- [ ] Skipped rows are printed as they happen but never summarized — the run ends without reporting how many rows were dropped or which ones.
-
-**Features**
 
 - [ ] No rate limiting between calls, and calls run sequentially (concurrency would cut runtime significantly).
 - [ ] Accept the CSV path as a command-line argument instead of `input()`.
