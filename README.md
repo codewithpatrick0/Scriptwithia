@@ -1,4 +1,4 @@
-# Scriptwithia
+# Leadsmith
 
 A Python CLI that enriches a CSV of companies with an LLM, through the [Groq](https://groq.com/) API.
 
@@ -52,8 +52,8 @@ That costs one API call per row, and buys three things:
 Requires Python 3.12+, [uv](https://docs.astral.sh/uv/), and a Groq API key ([console.groq.com/keys](https://console.groq.com/keys)).
 
 ```bash
-git clone https://github.com/codewithpatrick0/Scriptwithia.git
-cd Scriptwithia
+git clone https://github.com/codewithpatrick0/leadsmith.git
+cd leadsmith
 uv sync
 cp .env.example .env
 ```
@@ -69,7 +69,7 @@ GROQ_API_KEY=your_groq_api_key_here
 ## Usage
 
 ```bash
-uv run scriptwithia
+uv run leadsmith
 ```
 
 It asks for two names, both **without** the extension — the input CSV, then a base name for the outputs:
@@ -93,9 +93,9 @@ Process completed.
 ## Project structure
 
 ```
-Scriptwithia/
+leadsmith/
 ├── src/
-│   └── scriptwithia/
+│   └── leadsmith/
 │       ├── script.py        # Reading, prompting, calling, validating, writing
 │       └── settings.py      # Loads GROQ_API_KEY from .env
 ├── sample_input.csv
